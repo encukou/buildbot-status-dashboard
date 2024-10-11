@@ -83,9 +83,16 @@ def get_release_status_app(buildernames=None):
 
         failed_builders = []
         for branch, failed_builds_by_tier in failed_builds_by_branch_and_tier.items():
+            if 'tier-1' in failed_builds_by_tier or 'tier-2' in failed_builds_by_tier:
+                status = 'bad'
+            elif failed_builds_by_tier:
+                status = 'concern'
+            else:
+                status = 'ok'
             failed_builders.append((
                 branch,
-                sorted(failed_builds_by_tier.items(), key=tier_sort_key)
+                sorted(failed_builds_by_tier.items(), key=tier_sort_key),
+                status,
             ))
 
         def branch_sort_key(item):

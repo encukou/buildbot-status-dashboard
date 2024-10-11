@@ -42,7 +42,8 @@ class BuildbotAPIShim:
 app.buildbot_api = BuildbotAPIShim()
 
 
-def body_middleware(wsgi_app):
+def body_middleware(app):
+    wsgi_app = app.wsgi_app  # the wrapped wsgi_app
     def _mw(environ, server_start_response):
         if environ['PATH_INFO'] != '/index.html':
             return (yield from wsgi_app(environ, server_start_response))
@@ -58,8 +59,9 @@ def body_middleware(wsgi_app):
             with app.request_context(environ):
                 yield b'<html>'
                 yield b'<head>'
+                yield b'<base href="https://buildbot.python.org/">'
                 yield b'<link rel="stylesheet" href="https://buildbot.python.org/assets/index-Cwdqrn--.css">'  # TODO: this'll break...
-                url = url_for('static', filename='dashboard.css')
+                url = url_for('static', filename='dashboard.css', _external=True)
                 yield f'<link rel="stylesheet" href="{url}">'.encode()
                 yield b'<head>'
                 yield b'<body>'
@@ -69,7 +71,7 @@ def body_middleware(wsgi_app):
             yield b'</html>'
     return _mw
 
-app.wsgi_app = body_middleware(app.wsgi_app)
+app.wsgi_app = body_middleware(app)
 
 
 @app.route('/')
