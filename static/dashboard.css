@@ -1,10 +1,10 @@
 .release_status {
     section {
-        padding-left: 2rem;
+        padding-left: 1.5rem;
     }
     h1, h2, h3, h4, h5, h6 {
         section > & {
-            margin-left: -2rem;
+            margin-left: -1.5rem;
         }
     }
     section.branch-status.status-bad {
@@ -44,6 +44,20 @@
         & > section {
             padding-bottom: 0.5rem;
         }
+    }
+    .build {
+        --result-color: var(--pill-bg-color);
+        border-radius: 1rem;
+        display: inline-block;
+        margin-right: 2px;
+        width: 1rem;
+        height: 1rem;
+        background-color: var(--result-color);
+        &.build-results-0 { --result-color: var(--success-color); }
+        &.build-results-1 { --result-color: var(--warning-color); }
+        &.build-results-2 { --result-color: var(--danger-color); }
+        position: relative;
+        top: 4px;
     }
 }
 

@@ -45,7 +45,7 @@ app.buildbot_api = BuildbotAPIShim()
 def body_middleware(app):
     wsgi_app = app.wsgi_app  # the wrapped wsgi_app
     def _mw(environ, server_start_response):
-        if environ['PATH_INFO'] != '/index.html':
+        if environ['PATH_INFO'] not in ('/', '/index.html'):
             return (yield from wsgi_app(environ, server_start_response))
         saved_status = None
         saved_headers = ()
@@ -72,8 +72,3 @@ def body_middleware(app):
     return _mw
 
 app.wsgi_app = body_middleware(app)
-
-
-@app.route('/')
-def index():
-    return redirect("/index.html")

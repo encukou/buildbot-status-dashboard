@@ -2,3 +2,4 @@ flask
 buildbot
 requests
 requests_cache
+humanize

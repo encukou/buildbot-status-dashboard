@@ -1,3 +1,40 @@
+{% macro build_dot(build) -%}
+    <a
+        href="#/builders/{{build.builderid}}/builds/{{ build.number }}"
+        class="build build-results-{{ build.results }}"
+        title="#{{ build.number }} {{ build }}"
+    >
+        &nbsp;
+    </a>
+{% endmacro -%}
+{% macro build_info(build) -%}
+    {{ build_dot(build) }}
+    <span title="{{ build }}">#{{ build.number }}</span>
+    ({{ build.started_at | format_timestamp }})
+    {% if build.changes %}
+        <div>
+            Changes for #{{ build.number }}:
+            <ul>
+                {% for change in build.changes %}
+                    <li>
+                        <a href="{{ change.revlink }}" title="{{ change }}">
+                            {{ change.comments | first_line }}
+                        </a>
+                        by {{ change.author | committer_name }}
+                        <ul>
+                            {% for file in change.files %}
+                                <li>
+                                    {{ file }}
+                                </li>
+                            {% endfor  %}
+                        </ul>
+                    </li>
+                {% endfor  %}
+            </ul>
+        </div>
+    {% endif %}
+﻿{% endmacro -%}
+
 <div class="container release_status">
     <div style="text-align: center;">
         <h1>Python Branch Status Dashboard</h1>
@@ -22,13 +59,26 @@
             {% for tier, info in info_by_tier %}
                 <section>
                     <h4 class="tier-name">{{ tier }}</h4>
-                    {% for builder, build in info %}
+                    {% for builder, breaking_build, builds in info %}
                         <section>
                             <h5>
-                                <a href="#/builders/{{build.builderid}}/builds/{{build.number}}">
+                                <a href="#/builders/{{builder.builderid}}">
                                     {{ builder.name -}}
-                                </a>: #{{ build.number }}
+                                </a>
                             </h5>
+                            {% for build in builds %}
+                                {{ build_dot(build) }}
+                            {% endfor %}
+                            {% if builds %}
+                                <div>
+                                    Most recent build: {{ build_info(builds[0]) }}
+                                </div>
+                            {% endif %}
+                            {% if breaking_build %}
+                                <div>
+                                    Breaking build: {{ build_info(breaking_build) }}
+                                </div>
+                            {% endif %}
                         </section>
                     {% endfor %}
                 </section>
