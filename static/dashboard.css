@@ -1,0 +1,129 @@
+.release_status {
+    section {
+        padding-left: 1.5rem;
+    }
+    h1, h2, h3, h4, h5, h6 {
+        section > & {
+            margin-left: -1.5rem;
+        }
+    }
+    section.branch-status.status-bad {
+        --status-color: var(--danger-color);
+    }
+    section.branch-status.status-concern {
+        --status-color: var(--warning-color);
+        h3 {
+            color: var(--pill-text-color);
+        }
+    }
+    section.branch-status.status-ok {
+        --status-color: var(--success-color);
+        border-color: transparent;
+        padding-bottom: 0;
+        h3 {
+            border-radius: 20px;
+        }
+    }
+    section.branch-status {
+        --status-color: var(--background-color);
+        border-radius: 20px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);; /*0 2px 4px color-mix(in srgb, var(--status-color) 20%, color-mix(in srgb, var(--background-color) 50%, transparent));*/
+        border-left: 2px solid var(--status-color);
+        h3 {
+            border-top-left-radius: 20px;
+            border-top-right-radius: 20px;
+            padding-left: 1rem;
+            background-color: var(--status-color);
+            color: var(--background-color);
+        }
+        margin-bottom: 1rem;
+        h4.tier-name {
+            font-weight: normal;
+            font-size: 100%;
+        }
+        & > section {
+            padding-bottom: 0.5rem;
+        }
+    }
+    .build {
+        --result-color: var(--pill-bg-color);
+        border-radius: 1rem;
+        display: inline-block;
+        margin-right: 2px;
+        width: 1rem;
+        height: 1rem;
+        background-color: var(--result-color);
+        &.build-results-0 { --result-color: var(--success-color); }
+        &.build-results-1 { --result-color: var(--warning-color); }
+        &.build-results-2 { --result-color: var(--danger-color); }
+        position: relative;
+        top: 4px;
+    }
+}
+
+:root {
+    --primary-color: #306998;
+    --secondary-color: #FFD43B;
+    --background-color: #f4f4f4;
+    --text-color: #333;
+    --success-color: #4CAF50;
+    --warning-color: #FFD43B;
+    --danger-color: #f44336;
+    --pill-bg-color: #e0e0e0;
+    --pill-text-color: #333;
+    --pill-hover-bg-color: #306998;
+    --pill-hover-text-color: #ffffff;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    line-height: 1.6;
+    color: var(--text-color);
+    background-color: var(--background-color);
+    margin: 0;
+    padding: 0;
+    transition: all 0.3s ease;
+}
+
+.container {
+    width: 90%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.release_status {
+    background-color: white;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    padding: 20px;
+    margin-top: 20px;
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.header img {
+    max-width: 100%;
+    height: auto;
+    animation: fadeIn 1s ease-out;
+}
+
+h1, h2 {
+    color: var(--primary-color);
+}
+
+h1 {
+    font-size: 2.5em;
+    margin-top: 20px;
+}
+
+h2 {
+    font-size: 2em;
+    border-bottom: 2px solid var(--secondary-color);
+    padding-bottom: 10px;
+    margin-top: 40px;
+}
+igh
