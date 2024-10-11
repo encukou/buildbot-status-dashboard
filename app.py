@@ -1,6 +1,6 @@
 from urllib.parse import urlunsplit, urlencode
 
-from flask import redirect
+from flask import redirect, url_for
 import requests
 import requests_cache
 
@@ -40,6 +40,37 @@ class BuildbotAPIShim:
         return result
 
 app.buildbot_api = BuildbotAPIShim()
+
+
+def body_middleware(wsgi_app):
+    def _mw(environ, server_start_response):
+        if environ['PATH_INFO'] != '/index.html':
+            return (yield from wsgi_app(environ, server_start_response))
+        saved_status = None
+        saved_headers = ()
+        def start_response(status, headers):
+            nonlocal saved_status, saved_headers
+            saved_status = status
+            saved_headers = headers
+            return server_start_response(status, headers)
+        response = wsgi_app(environ, start_response)
+        if saved_status.startswith('200'):
+            with app.request_context(environ):
+                yield b'<html>'
+                yield b'<head>'
+                yield b'<link rel="stylesheet" href="https://buildbot.python.org/assets/index-Cwdqrn--.css">'  # TODO: this'll break...
+                url = url_for('static', filename='dashboard.css')
+                yield f'<link rel="stylesheet" href="{url}">'.encode()
+                yield b'<head>'
+                yield b'<body>'
+        yield from response
+        if saved_status.startswith('200'):
+            yield b'</body>'
+            yield b'</html>'
+    return _mw
+
+app.wsgi_app = body_middleware(app.wsgi_app)
+
 
 @app.route('/')
 def index():
