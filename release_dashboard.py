@@ -33,6 +33,9 @@ def get_release_status_app(buildernames=None):
             if "stable" not in builder["tags"]:
                 continue
 
+            if "PullRequest" in builder["tags"]:
+                continue
+
             for worker in release_status_app.buildbot_api.dataGet(
                 ("builders", builder["builderid"], "workers"),
             ):
