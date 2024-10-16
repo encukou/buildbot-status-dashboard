@@ -66,6 +66,9 @@
                                     {{ builder.name -}}
                                 </a>
                             </h5>
+                            {% if builder.builderid in disconnected_builders %}
+                                Disconnected!
+                            {% endif %}
                             {% for build in builds %}
                                 {{ build_dot(build) }}
                             {% endfor %}
@@ -85,21 +88,6 @@
             {% endfor %}
         </section>
     {% endfor %}
-
-    {% if disconnected_workers %}
-        <section>
-            <h2>Disconnected stable workers</h2>
-
-            {% for name, worker in disconnected_workers %}
-                <div>
-                    -
-                    <a href="#/workers/{{ worker.workerid }}">
-                        {{ name }}
-                    </a>
-                </div>
-            {% endfor %}
-        </section>
-    {% endif %}
 
     <div class="container">
         <small>Generated at <time id="generatedAt" datetime="{{generated_at}}">{{generated_at}}</time></small>

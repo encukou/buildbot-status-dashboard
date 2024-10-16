@@ -46,10 +46,16 @@ def get_release_status_app(buildernames=None):
     cache = None
 
     def get_release_status():
+        connected_builderids = set()
+        for worker in release_status_app.buildbot_api.dataGet("/workers"):
+            if worker["connected_to"]:
+                for cnf in worker["configured_on"]:
+                    connected_builderids.add(cnf["builderid"])
+
         builders = release_status_app.buildbot_api.dataGet("/builders")
 
         failed_builds_by_branch_and_tier = {}
-        disconnected_workers = {}
+        disconnected_builders = set()
 
         for i, builder in enumerate(builders):
             print(f'{i}/{len(builders)}', builder)
@@ -62,13 +68,7 @@ def get_release_status_app(buildernames=None):
             if "PullRequest" in builder["tags"]:
                 continue
 
-            for worker in release_status_app.buildbot_api.dataGet(
-                ("builders", builder["builderid"], "workers"),
-            ):
-                if not worker["connected_to"]:
-                    disconnected_workers[worker["name"]] = worker
-
-            branch = None
+            branch = 'no-branch'
             tier = 'no tier'
             for tag in builder["tags"]:
                 if "3." in tag:
@@ -76,10 +76,16 @@ def get_release_status_app(buildernames=None):
                 if tag.startswith('tier-'):
                     tier = tag
 
-            if not branch:
-                continue
+            #if not branch:
+            #    continue
 
             failed_builds_by_tier = failed_builds_by_branch_and_tier.setdefault(branch, {})
+
+            if builder["builderid"] not in connected_builderids:
+                disconnected_builders.add(builder["builderid"])
+                failed_builds = failed_builds_by_tier.setdefault(tier, [])
+                failed_builds.append((builder, None, []))
+                continue
 
             endpoint = ("builders", builder["builderid"], "builds")
             builds = release_status_app.buildbot_api.dataGet(
@@ -99,10 +105,13 @@ def get_release_status_app(buildernames=None):
                 build["changes"] = changes
 
             builds_to_show = []
+            countdown = 10
             for build in builds:
                 builds_to_show.append(build)
                 if build["results"] == SUCCESS_BUILD_STATUS:
-                    break
+                    countdown -= 1
+                    if countdown <= 0:
+                        break
 
             if not is_failing:
                 continue
@@ -146,7 +155,7 @@ def get_release_status_app(buildernames=None):
             "releasedashboard.html",
             failed_builders=failed_builders,
             generated_at=generated_at,
-            disconnected_workers=sorted(disconnected_workers.items()),
+            disconnected_builders=disconnected_builders,
         )
 
     @release_status_app.route('/')
