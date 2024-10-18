@@ -1,7 +1,7 @@
 {% macro build_dot(build) -%}
     <a
         href="#/builders/{{build.builderid}}/builds/{{ build.number }}"
-        class="build build-results-{{ build.results }}"
+        class="build-dot build-results-{{ build.css_color_class }}"
         title="#{{ build.number }} {{ build }}"
     >
         &nbsp;
@@ -10,10 +10,10 @@
 {% macro build_info(build) -%}
     {{ build_dot(build) }}
     <span title="{{ build }}">#{{ build.number }}</span>
-    ({{ build.started_at | format_timestamp }})
+    ({{ build.started_at | format_datetime }})
     {% if build.changes %}
-        <div>
-            Changes for #{{ build.number }}:
+        <details {% if build.changes|length <= 3 %}open{% endif %}>
+            <summary>{{ build.changes|length }} change{% if build.changes|length != 1 %}s{% endif %}</summary>
             <ul>
                 {% for change in build.changes %}
                     <li>
@@ -21,70 +21,108 @@
                             {{ change.comments | first_line }}
                         </a>
                         by {{ change.author | committer_name }}
-                        <ul>
-                            {% for file in change.files %}
-                                <li>
-                                    {{ file }}
-                                </li>
-                            {% endfor  %}
-                        </ul>
+                        {% if change.files %}
+                            <details {% if change.files|length <= 3 %}open{% endif %}>
+                                <summary>{{ change.files|length }} file{% if change.files|length != 1 %}s{% endif %} changed</summary>
+                                <ul>
+                                    {% for file in change.files %}
+                                        <li>
+                                            {{ file }}
+                                        </li>
+                                    {% endfor  %}
+                                </ul>
+                            </details>
+                        {% endif %}
                     </li>
                 {% endfor  %}
             </ul>
-        </div>
+        </details>
     {% endif %}
 ﻿{% endmacro -%}
 
 <div class="container release_status">
     <div style="text-align: center;">
-        <h1>Python Branch Status Dashboard</h1>
+        <h1>Python Release Status Dashboard</h1>
     </div>
 
-    <h2>Failing stable builders</h2>
+    <div class="row top-panels">
+        {% for branch in state.branches | reverse %}
+            {% if branch.name == 'no-branch' %}
+                {% continue %}
+            {% endif %}
+            <div class="col branch-panel">
+                <div
+                    class="panel panel-{{ branch.featured_problem.css_color_class }}"
+                    {#- Buildbot's React UI takes over `#` in the URL, so a HTML fragment link won't work here...  #}
+                    onclick="document.getElementById('branch-section-{{branch}}').scrollIntoView();"
+                >
+                    <div class="panel-heading">
+                        <h3 class="panel-title">
+                            {{ branch.title }}
+                        </h3>
+                    </div>
+                    <div class="panel-body">
+                        {% if branch.featured_problem.severity <= Severity.NO_PROBLEM %}
+                            Releasable!
+                        {% else %}
+                            {{ branch.featured_problem }}
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
 
-    {% for branch, info_by_tier, branch_status in failed_builders %}
-        <section class="branch-status status-{{ branch_status }}">
+    <h2>Problems by Branch</h2>
+
+    {% for branch in state.branches %}
+        <section class="branch-status status-{{ branch.featured_problem.css_color_class }}" id="branch-section-{{branch}}">
             <h3>
-                {{ branch }}:
-                {% if branch_status == "ok" %}
-                    Releasable
-                {% elif branch_status == "concern" %}
-                    Concern
-                {% elif branch_status == "bad" %}
-                    Unreleasable
-                {% else %}
-                    Unknown?!
-                {% endif %}
+                {{ branch.title }}
             </h3>
-            {% for tier, info in info_by_tier %}
-                <section>
-                    <h4 class="tier-name">{{ tier }}</h4>
-                    {% for builder, breaking_build, builds in info %}
-                        <section>
-                            <h5>
-                                <a href="#/builders/{{builder.builderid}}">
-                                    {{ builder.name -}}
-                                </a>
-                            </h5>
-                            {% if builder.builderid in disconnected_builders %}
-                                Disconnected!
-                            {% endif %}
-                            {% for build in builds %}
-                                {{ build_dot(build) }}
-                            {% endfor %}
-                            {% if builds %}
-                                <div>
-                                    Most recent build: {{ build_info(builds[0]) }}
-                                </div>
-                            {% endif %}
-                            {% if breaking_build %}
-                                <div>
-                                    Breaking build: {{ build_info(breaking_build) }}
-                                </div>
-                            {% endif %}
-                        </section>
-                    {% endfor %}
-                </section>
+            {% for description, problems in branch.get_grouped_problems() %}
+                <details {% if problems[0].severity > Severity.TRIVIAL %}open{% endif %}>
+                    <summary class="tier-name">{{ description }} ({{ problems|length }})</summary>
+                    <section>
+                        {% for problem in problems %}
+                            <section>
+                                {% if problem.builder is defined %}
+                                    {% set builder = problem.builder %}
+                                    <h5>
+                                        <a href="#/builders/{{builder.builderid}}">
+                                            {{ builder.name -}}
+                                        </a>
+                                        {% for tag in builder.tags %}
+                                            <span class="tag">
+                                                {{ tag }}
+                                            </span>
+                                        {% endfor %}
+                                    </h5>
+                                    {% if not builder.connected_workers %}
+                                        <div>
+                                            Disconnected!
+                                            {% if builder.builds %}
+                                                Last build {{ builder.builds[0].started_at | format_datetime }}
+                                            {% endif %}
+                                        </div>
+                                    {% endif %}
+                                    <div class="build-dots">
+                                        {% for build in builder.builds %}
+                                            {{ build_dot(build) }}
+                                        {% endfor %}
+                                    </div>
+                                    {% for label, build in problem.affected_builds.items() %}
+                                        <div>
+                                            {{ label}}: {{ build_info(build) }}
+                                        </div>
+                                    {% endfor %}
+                                {% else %}
+                                    {{ problem }}
+                                {% endif %}
+                            </section>
+                        {% endfor %}
+                    </section>
+                </details>
             {% endfor %}
         </section>
     {% endfor %}

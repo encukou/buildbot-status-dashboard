@@ -6,7 +6,11 @@ import requests_cache
 
 import release_dashboard
 
-requests_cache.install_cache(backend='sqlite', stale_while_revalidate=True)
+requests_cache.install_cache(
+    backend='sqlite',
+    stale_while_revalidate=True,
+    expire_after=15*60,
+)
 app = release_dashboard.get_release_status_app()
 
 class BuildbotAPIShim:
@@ -60,10 +64,10 @@ def body_middleware(app):
                 yield b'<html>'
                 yield b'<head>'
                 yield b'<base href="https://buildbot.python.org/">'
-                yield b'<link rel="stylesheet" href="https://buildbot.python.org/assets/index-Cwdqrn--.css">'  # TODO: this'll break...
+                yield b'<link rel="stylesheet" href="https://buildbot.python.org/assets/index-RMiJqufA.css">'  # TODO: this'll break...
                 url = url_for('static', filename='dashboard.css', _external=True)
                 yield f'<link rel="stylesheet" href="{url}">'.encode()
-                yield b'<head>'
+                yield b'</head>'
                 yield b'<body>'
         yield from response
         if saved_status.startswith('200'):
