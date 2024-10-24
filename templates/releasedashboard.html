@@ -2,43 +2,93 @@
     <a
         href="#/builders/{{build.builderid}}/builds/{{ build.number }}"
         class="build-dot build-results-{{ build.css_color_class }}"
-        title="#{{ build.number }} {{ build }}"
+        title="{{ build_summary(build) }}"
     >
         &nbsp;
     </a>
 {% endmacro -%}
+{%- macro build_summary(build) -%}
+    #{{- build.number -}}
+    {{- ' ' -}}
+    (
+        {{- build.started_at | format_datetime -}}
+        {%- if build.duration -%}
+            , took {{ build.duration | format_timedelta -}}
+        {%- endif -%}
+    )
+{%- endmacro -%}
 {% macro build_info(build) -%}
     {{ build_dot(build) }}
-    <span title="{{ build }}">#{{ build.number }}</span>
-    ({{ build.started_at | format_datetime }})
-    {% if build.changes %}
-        <details {% if build.changes|length <= 3 %}open{% endif %}>
-            <summary>{{ build.changes|length }} change{% if build.changes|length != 1 %}s{% endif %}</summary>
-            <ul>
-                {% for change in build.changes %}
-                    <li>
-                        <a href="{{ change.revlink }}" title="{{ change }}">
-                            {{ change.comments | first_line }}
-                        </a>
-                        by {{ change.author | committer_name }}
-                        {% if change.files %}
-                            <details {% if change.files|length <= 3 %}open{% endif %}>
-                                <summary>{{ change.files|length }} file{% if change.files|length != 1 %}s{% endif %} changed</summary>
-                                <ul>
-                                    {% for file in change.files %}
-                                        <li>
-                                            {{ file }}
-                                        </li>
-                                    {% endfor  %}
-                                </ul>
-                            </details>
-                        {% endif %}
-                    </li>
-                {% endfor  %}
-            </ul>
-        </details>
+    {{ build_summary(build) }}
+    {% if build.builder.is_stable %}
+        {% if build.junit_results %}
+            {% for name, result in build.junit_results.contents.items() %}
+                {{ junit_result(build.junit_results, name, toplevel=True) }}
+            {% endfor %}
+        {% endif %}
+        {% if build.changes %}
+            <details {% if build.changes|length <= 3 %}open{% endif %}>
+                <summary>{{ build.changes|length }} change{% if build.changes|length != 1 %}s{% endif %}</summary>
+                <ul>
+                    {% for change in build.changes %}
+                        <li>
+                            <a href="{{ change.revlink }}" title="{{ change }}">
+                                {{ change.comments | first_line }}
+                            </a>
+                            by {{ change.author | committer_name }}
+                            {% if change.files %}
+                                <details {% if change.files|length <= 3 %}open{% endif %}>
+                                    <summary>{{ change.files|length }} file{% if change.files|length != 1 %}s{% endif %} changed</summary>
+                                    <ul>
+                                        {% for file in change.files %}
+                                            <li>
+                                                {{ file }}
+                                            </li>
+                                        {% endfor  %}
+                                    </ul>
+                                </details>
+                            {% endif %}
+                        </li>
+                    {% endfor  %}
+                </ul>
+            </details>
+        {% endif %}
     {% endif %}
 ﻿{% endmacro -%}
+{% macro junit_result(result, name, toplevel=False) %}
+    {% if (result.contents | length == 1) and (not result.errors) %}
+        {% for cname, child in result.contents.items() %}
+            {{ junit_result(child, name + ('.' if name else '') + cname, toplevel=toplevel) }}
+        {% endfor %}
+    {% else %}
+        <details {% if not toplevel %}open{% endif %} class="junit-result">
+            <summary>
+                <code>{{ name }}</code>
+                <span class="exception-summary">
+                    (
+                    {%- for type in result.error_types | sort -%}
+                        {%- if loop.index > 3 -%}
+                            ...
+                            {% break %}
+                        {%- endif -%}
+                        <code>{{ type }}</code>
+                        {%- if not loop.first %}, {% endif -%}
+                    {%- endfor -%}
+                    )
+                </span>
+            </summary>
+            {% for error in result.errors %}
+                <details class="junit-error">
+                    <summary><code>{{ error.type }}</code></summary>
+                    <pre class="junit-traceback">{{ error.text }}</pre>
+                </details>
+            {% endfor %}
+            {% for cname, child in result.contents.items() %}
+                {{ junit_result(child, cname) }}
+            {% endfor %}
+        </details>
+    {% endif %}
+{% endmacro %}
 
 <div class="container release_status">
     <div style="text-align: center;">
@@ -47,12 +97,12 @@
 
     <div class="row top-panels">
         {% for branch in state.branches | reverse %}
-            {% if branch.name == 'no-branch' %}
+            {% if branch.tag == 'no-branch' %}
                 {% continue %}
             {% endif %}
             <div class="col branch-panel">
                 <div
-                    class="panel panel-{{ branch.featured_problem.css_color_class }}"
+                    class="panel panel-{{ branch.featured_problem.severity.css_color_class }}"
                     {#- Buildbot's React UI takes over `#` in the URL, so a HTML fragment link won't work here...  #}
                     onclick="document.getElementById('branch-section-{{branch}}').scrollIntoView();"
                 >
@@ -62,10 +112,19 @@
                         </h3>
                     </div>
                     <div class="panel-body">
+                        <div class="severity-symbol">{{ branch.featured_problem.severity.symbol }}</div>
                         {% if branch.featured_problem.severity <= Severity.NO_PROBLEM %}
                             Releasable!
                         {% else %}
                             {{ branch.featured_problem }}
+                        {% endif %}
+                    </div>
+                    <div class="panel-footer">
+                        {% if branch.pep is defined %}
+                            <div><a href="https://peps.python.org/pep-{{ branch.pep }}/">PEP {{ branch.pep }}</a></div>
+                        {% endif %}
+                        {% if branch.release_manager is defined %}
+                            <div><abbr title="Release Manager">RM</abbr>: {{ branch.release_manager | short_rm_name }}</div>
                         {% endif %}
                     </div>
                 </div>
@@ -76,7 +135,7 @@
     <h2>Problems by Branch</h2>
 
     {% for branch in state.branches %}
-        <section class="branch-status status-{{ branch.featured_problem.css_color_class }}" id="branch-section-{{branch}}">
+        <section class="branch-status status-{{ branch.featured_problem.severity.css_color_class }}" id="branch-section-{{branch}}">
             <h3>
                 {{ branch.title }}
             </h3>
@@ -100,7 +159,7 @@
                                     </h5>
                                     {% if not builder.connected_workers %}
                                         <div>
-                                            Disconnected!
+                                            Disconnected! 🔌
                                             {% if builder.builds %}
                                                 Last build {{ builder.builds[0].started_at | format_datetime }}
                                             {% endif %}
@@ -113,7 +172,7 @@
                                     </div>
                                     {% for label, build in problem.affected_builds.items() %}
                                         <div>
-                                            {{ label}}: {{ build_info(build) }}
+                                            {{ label }}: {{ build_info(build) }}
                                         </div>
                                     {% endfor %}
                                 {% else %}

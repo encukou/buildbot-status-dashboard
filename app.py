@@ -11,7 +11,7 @@ requests_cache.install_cache(
     stale_while_revalidate=True,
     expire_after=15*60,
 )
-app = release_dashboard.get_release_status_app()
+app = release_dashboard.get_release_status_app(test_result_dir='test-results')
 
 class BuildbotAPIShim:
     def dataGet(self, parts, limit=None, order=None, filters=None):

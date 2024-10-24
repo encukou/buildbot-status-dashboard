@@ -5,6 +5,11 @@ from functools import cached_property, total_ordering
 import enum
 from dataclasses import dataclass
 import itertools
+import urllib.request
+import urllib.error
+import json
+from pathlib import Path
+from xml.etree import ElementTree
 
 from flask import Flask
 from flask import render_template, request
@@ -14,6 +19,7 @@ import humanize
 from buildbot.data.resultspec import Filter
 
 N_BUILDS = 200
+MAX_CHANGES = 50
 
 FAILED_BUILD_STATUS = 2
 WARNING_BUILD_STATUS = 1
@@ -26,25 +32,39 @@ MIN_CONSECUTIVE_FAILURES = 2
 # get a cache hit.
 CACHE_DURATION = 6 * 60
 
+BRANCHES_URL = "https://raw.githubusercontent.com/python/devguide/main/include/release-cycle.json"
 
-class BBObject:
-    """Base wrapper fo a Buildbot object.
 
-    Acts as a dict with the info we get from BuildBot API, but can also
-    have extra attributes -- ones needed for analysis, or collections
-    of related items.
+def _gimme_error(func):
+    """Decorator to turn AttributeError into a different Exception
 
-    All retrieved information should be cached (using @cached_property).
+    jinja2 tends to swallow AttributeError or report it in some place it
+    didn't happen. When that's a problem, use this decorator to get
+    a usable traceback.
+    """
+    def decorated(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except AttributeError as e:
+            raise Exception(f'your error: {e!r}')
+    return decorated
+
+
+class DashboardObject:
+    """Base wrapper for a dashboard object.
+
+    Acts as a dict with the info we get (usually) from JSON API.
+
+    All computed information should be cached, using e.g. @cached_property.
     For a fresh view, discard all these objects and build them again.
+    (Computing info on demand means the "for & if" logic in the template
+    doesn't need to be duplicated in Python code.)
 
     Objects are arranged in a tree: every one (except the root) has a parent.
     (Cross-tree references must go through the root.)
 
-    Computing info on demand means the "for & if" logic in the template,
-    doesn't need to be duplicated in Python code.
-
-    N.B.: In Jinja, mapping keys and attributes are largely
-    interchangeable. Shadow them wisely.
+    N.B.: In Jinja, mapping keys and attributes are interchangeable.
+    Shadow the `info` dict wisely.
     """
     def __init__(self, parent, info):
         self._parent = parent
@@ -57,20 +77,19 @@ class BBObject:
     def dataGet(self, *args, **kwargs):
         # Buildbot sets `buildbot_api` as an attribute on the WSGI app,
         # a bit later than we'd like. Get to it dynamically.
-        return self._root._app.buildbot_api.dataGet(*args, **kwargs)
+        return self._root._app.flask_app.buildbot_api.dataGet(*args, **kwargs)
 
     def __repr__(self):
         return f'<{type(self).__name__} at {id(self)}: {self._info}>'
 
 
-class BBState(BBObject):
+class DashboardState(DashboardObject):
     """The root of our abstraction, a bit special.
     """
     def __init__(self, app):
         self._root = self
         self._app = app
         super().__init__(self, {})
-        self._branches = {}
         self._tiers = {}
 
     @cached_property
@@ -89,42 +108,39 @@ class BBState(BBObject):
     def workers(self):
         return [Worker(self, info) for info in self.dataGet("/workers")]
 
-    def get_branch(self, tags):
-        for tag in tags:
-            if tag.startswith("3."):
-                break
-        else:
-            tag = 'no-branch'
-            sort_key = (0, 0)
-        try:
-            return self._branches[tag]
-        except KeyError:
-            branch = Branch(self, {'name': tag})
-            self._branches[tag] = branch
-            return branch
+    @cached_property
+    def branches(self):
+        branches = []
+        for version, info in self._app.branch_info.items():
+            if info['status'] == 'end-of-life':
+                continue
+            if info['branch'] == 'main':
+                tag = '3.x'
+            else:
+                tag = version
+            branches.append(Branch(self, {
+                **info, 'version': version, 'tag': tag
+            }))
+        branches.append(self._no_branch)
+        return branches
 
-    def get_tier(self, tags):
-        for tag in tags:
-            if tag.startswith("tier-"):
-                break
-        else:
-            tag = 'no-tier'
-        try:
-            return self._tiers[tag]
-        except KeyError:
-            tier = Tier(self, {'name': tag})
-            self._tiers[tag] = tier
-            return tier
+    @cached_property
+    def _no_branch(self):
+        return Branch(self, {'tag': 'no-branch'})
+
+    @cached_property
+    def tiers(self):
+        tiers = [Tier(self, {'tag': f'tier-{n}'}) for n in range(1, 3 + 1)]
+        tiers.append(self._no_tier)
+        return tiers
+
+    @cached_property
+    def _no_tier(self):
+        return Tier(self, {'tag': 'no-tier'})
 
     @cached_property
     def now(self):
         return datetime.datetime.now(tz=datetime.timezone.utc)
-
-    @cached_property
-    def branches(self):
-        # Make sure all branches are filled in
-        [b.branch for b in self.builders]
-        return sorted(self._branches.values(), reverse=True)
 
 
 def cached_sorted_property(func=None, /, **sort_kwargs):
@@ -143,7 +159,7 @@ def cached_sorted_property(func=None, /, **sort_kwargs):
 
 
 @total_ordering
-class Builder(BBObject):
+class Builder(DashboardObject):
     @cached_property
     def builds(self):
         endpoint = ("builders", self["builderid"], "builds")
@@ -159,17 +175,26 @@ class Builder(BBObject):
         return [Build(self, info) for info in infos]
 
     @cached_property
+    def tags(self):
+        return frozenset(self["tags"])
+
+    @cached_property
     def branch(self):
-        return self._root.get_branch(self["tags"])
-        return 'no-branch'
+        for branch in self._parent.branches:
+            if branch.tag in self.tags:
+                return branch
+        return self._parent._no_branch
 
     @cached_property
     def tier(self):
-        return self._root.get_tier(self["tags"])
+        for tier in self._parent.tiers:
+            if tier.tag in self.tags:
+                return tier
+        return self._parent._no_tier
 
     @cached_property
     def is_stable(self):
-        return 'stable' in self["tags"]
+        return 'stable' in self.tags
 
     @cached_property
     def is_release_blocking(self):
@@ -225,45 +250,45 @@ class Builder(BBObject):
                     if cnf["builderid"] == self["builderid"]:
                         yield worker
 
-class Worker(BBObject):
+class Worker(DashboardObject):
     pass
 
 @total_ordering
-class _BranchTierBase(BBObject):
+class _BranchTierBase(DashboardObject):
     @cached_property
-    def name(self):
-        return self["name"]
+    def tag(self):
+        return self["tag"]
 
     def __hash__(self):
-        return hash(self.name)
+        return hash(self.tag)
 
     def __eq__(self, other):
         if isinstance(other, str):
-            return self.name == other
+            return self.tag == other
         return self.sort_key == other.sort_key
 
     def __lt__(self, other):
         return self.sort_key < other.sort_key
 
     def __str__(self):
-        return self.name
+        return self.tag
 
 @total_ordering
 class Branch(_BranchTierBase):
     @cached_property
     def sort_key(self):
-        if self.name.startswith("3."):
+        if self.tag.startswith("3."):
             try:
-                return (1, int(self.name[2:]))
+                return (1, int(self.tag[2:]))
             except ValueError:
                 return (2, 99)
         return (0, 0)
 
     @cached_property
     def title(self):
-        if self.name == '3.x':
+        if self.tag == '3.x':
             return 'main'
-        return self.name
+        return self.tag
 
     @cached_sorted_property()
     def problems(self):
@@ -275,22 +300,27 @@ class Branch(_BranchTierBase):
 
     @cached_property
     def featured_problem(self):
+       try:
         try:
             return self.problems[0]
         except IndexError:
             return NoProblem()
+       except AttributeError:
+           raise SystemError
 
     def get_grouped_problems(self):
-        for d, problems in itertools.groupby(self.problems, lambda p: p.description):
+        def key(problem):
+            return problem.description
+        for d, problems in itertools.groupby(self.problems, key):
             yield d, list(problems)
 
 
 class Tier(_BranchTierBase):
     @cached_property
     def value(self):
-        if self.name.startswith("tier-"):
+        if self.tag.startswith("tier-"):
             try:
-                return int(self.name[5:])
+                return int(self.tag[5:])
             except ValueError:
                 return 99
         return 99
@@ -304,7 +334,7 @@ class Tier(_BranchTierBase):
         return self.value in {1, 2}
 
 
-class Build(BBObject):
+class Build(DashboardObject):
     @cached_property
     def builder(self):
         assert self._parent["builderid"] == self["builderid"]
@@ -314,7 +344,15 @@ class Build(BBObject):
     def changes(self):
         infos = self.dataGet(
             ("builds", self["buildid"], "changes"),
+            limit=MAX_CHANGES,
         )
+        if len(infos) == MAX_CHANGES:
+            # Buildbot lists changes since the last successful build,
+            # so the list can get very big. When this happens,
+            # it's probably better to pretend we don't have any info
+            # (an empty list, which we'll also get when information is
+            # scrubbed after some months)
+            return []
         return [Change(self, info) for info in infos]
 
     @cached_property
@@ -328,7 +366,7 @@ class Build(BBObject):
         if self["started_at"]:
             return self._root.now - self.started_at
 
-    @property
+    @cached_property
     def css_color_class(self):
         if self["results"] == SUCCESS_BUILD_STATUS:
             return 'success'
@@ -338,9 +376,72 @@ class Build(BBObject):
             return 'danger'
         return 'unknown'
 
+    @cached_property
+    def junit_results(self):
+        filepath = (
+            self._root._app.test_result_dir
+            / self.builder.branch.tag
+            / self.builder["name"]
+            / f'build_{self["number"]}.xml'
+        )
+        try:
+            file = filepath.open()
+        except OSError:
+            return None
+        with file:
+            etree = ElementTree.parse(file)
+        result = JunitResult(self, {})
+        for element in etree.iterfind('.//error/..'):
+            result.add(element)
+        return result
 
-class Change(BBObject):
-    pass
+    @cached_property
+    def duration(self):
+        try:
+            seconds = (
+                self["complete_at"]
+                - self["started_at"]
+                - self["locks_duration_s"]
+            )
+        except (KeyError, TypeError):
+            return None
+        return datetime.timedelta(seconds=seconds)
+
+class JunitResult(DashboardObject):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.contents = {}
+        self.errors = []
+        self.error_types = set()
+
+    def add(self, element):
+        errors = []
+        error_types = set()
+        for error_elem in element.iterfind('error'):
+            new_error = JunitError(self, {**error_elem.attrib, 'text': error_elem.text})
+            errors.append(new_error)
+            error_types.add(new_error["type"])
+        result = self
+        name_parts = element.attrib.get('name', '??').split('.')
+        if name_parts[0] == 'test':
+            name_parts.pop(0)
+        for part in name_parts:
+            result.error_types.update(error_types)
+            result = result.contents.setdefault(part, JunitResult(self, {}))
+        result.error_types.update(error_types)
+        for error in errors:
+            if error not in result.errors:
+                # De-duplicate, since failing tests are re-run
+                result.errors.extend(errors)
+
+
+class JunitError(DashboardObject):
+    def __eq__(self, other):
+        return self._info == other._info
+
+
+class Change(DashboardObject):
+    pass  # the JSON is fine! :)
 
 
 def get_or_make(mapping, key):
@@ -371,6 +472,22 @@ class Severity(enum.IntEnum):
     BLOCKING = enum.auto()
     release_blocking_failure = enum.auto()
 
+    @cached_property
+    def css_color_class(self):
+        if self >= Severity.BLOCKING:
+            return 'danger'
+        if self >= Severity.CONCERNING:
+            return 'warning'
+        return 'success'
+
+    @cached_property
+    def symbol(self):
+        if self >= Severity.BLOCKING:
+            return '\N{HEAVY BALLOT X}'
+        if self >= Severity.CONCERNING:
+            return '\N{WARNING SIGN}'
+        return '\N{HEAVY CHECK MARK}'
+
 
 class Problem:
     def __str__(self):
@@ -382,14 +499,6 @@ class Problem:
     def __lt__(self, other):
         return (-self.severity, self.description) < (-other.severity,
                                                      other.description)
-
-    @property
-    def css_color_class(self):
-        if self.severity >= Severity.BLOCKING:
-            return 'danger'
-        if self.severity >= Severity.CONCERNING:
-            return 'warning'
-        return 'success'
 
     @cached_property
     def severity(self):
@@ -497,13 +606,19 @@ class NoProblem(Problem):
     severity = Severity.NO_PROBLEM
 
 
-class ReleaseStatusApp:
-    def __init__(self):
+class ReleaseDashboard:
+    # This doesn't get recreated for every render.
+    # The Flask app and caches go here.
+    def __init__(self, test_result_dir=None):
         self.flask_app = Flask("test", root_path=os.path.dirname(__file__))
         self.cache = None
 
+        self._cache_branch_info()
+
         self.flask_app.jinja_env.add_extension('jinja2.ext.loopcontrols')
         self.flask_app.jinja_env.undefined = jinja2.StrictUndefined
+
+        self.test_result_dir = Path(test_result_dir)
 
         @self.flask_app.route('/')
         @self.flask_app.route("/index.html")
@@ -514,6 +629,11 @@ class ReleaseStatusApp:
                 result, deadline = self.cache
                 if time.monotonic() <= deadline:
                     return result
+
+                try:
+                    self._cache_branch_info()
+                except urllib.error.HTTPError:
+                    pass
 
             result = self.get_release_status()
             deadline = time.monotonic() + CACHE_DURATION
@@ -534,13 +654,28 @@ class ReleaseStatusApp:
             ago = humanize.naturaldelta(now - dt)
             return f'{dt:%Y-%m-%d %H:%M:%S}, {ago} ago'
 
+        @self.flask_app.template_filter('format_timedelta')
+        def format_timedelta(delta):
+            return humanize.naturaldelta(delta)
+
+        @self.flask_app.template_filter('short_rm_name')
+        def short_rm_name(full_name):
+            # DEBT: this assumes the first word of a release manager's name
+            # is a good way to call them.
+            # When that's no longer true we should put a name in the data.
+            return full_name.split()[0]
+
+    def _cache_branch_info(self):
+        with urllib.request.urlopen(BRANCHES_URL) as file:
+            self.branch_info = json.load(file)
+
     def dataGet(self, *args, **kwargs):
         # Buildbot sets `buildbot_api` as an attribute on the WSGI app.
         return self.flask_app.buildbot_api.dataGet(*args, **kwargs)
 
 
     def get_release_status(self):
-        state = BBState(self.flask_app)
+        state = DashboardState(self)
 
         connected_builderids = set()
         for worker in self.dataGet("/workers"):
@@ -557,7 +692,7 @@ class ReleaseStatusApp:
             if builder["builderid"] not in connected_builderids:
                 disconnected_builders.add(builder["builderid"])
 
-        generated_at = datetime.datetime.now(tz=datetime.timezone.utc)
+        generated_at = state.now
 
         return render_template(
             "releasedashboard.html",
@@ -566,5 +701,5 @@ class ReleaseStatusApp:
             generated_at=generated_at,
         )
 
-def get_release_status_app(buildernames=None):
-    return ReleaseStatusApp().flask_app
+def get_release_status_app(buildernames=None, **kwargs):
+    return ReleaseDashboard(**kwargs).flask_app
