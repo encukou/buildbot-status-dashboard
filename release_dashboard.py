@@ -55,7 +55,7 @@ class DashboardObject:
 
     Acts as a dict with the info we get (usually) from JSON API.
 
-    All computed information should be cached, using e.g. @cached_property.
+    All computed information should be cached using @cached_property.
     For a fresh view, discard all these objects and build them again.
     (Computing info on demand means the "for & if" logic in the template
     doesn't need to be duplicated in Python code.)
@@ -75,6 +75,7 @@ class DashboardObject:
         return self._info[key]
 
     def dataGet(self, *args, **kwargs):
+        """Call Buildbot API"""
         # Buildbot sets `buildbot_api` as an attribute on the WSGI app,
         # a bit later than we'd like. Get to it dynamically.
         return self._root._app.flask_app.buildbot_api.dataGet(*args, **kwargs)
@@ -130,7 +131,7 @@ class DashboardState(DashboardObject):
 
     @cached_property
     def tiers(self):
-        tiers = [Tier(self, {'tag': f'tier-{n}'}) for n in range(1, 3 + 1)]
+        tiers = [Tier(self, {'tag': f'tier-{n}'}) for n in range(1, 4)]
         tiers.append(self._no_tier)
         return tiers
 
@@ -251,10 +252,17 @@ class Builder(DashboardObject):
                         yield worker
 
 class Worker(DashboardObject):
-    pass
+    pass  # The JSON is fine! :)
 
 @total_ordering
 class _BranchTierBase(DashboardObject):
+    """Base class for Branch and Tag"""
+    # Branches have several kinds of names:
+    # 'tag': '3.x' (used as key)
+    # 'version': '3.14'
+    # 'branch': 'main'
+    # To prevent confusion, there's no 'name'
+
     @cached_property
     def tag(self):
         return self["tag"]
@@ -322,7 +330,7 @@ class Tier(_BranchTierBase):
             try:
                 return int(self.tag[5:])
             except ValueError:
-                return 99
+                pass
         return 99
 
     @cached_property
@@ -347,10 +355,10 @@ class Build(DashboardObject):
             limit=MAX_CHANGES,
         )
         if len(infos) == MAX_CHANGES:
-            # Buildbot lists changes since the last successful build,
-            # so the list can get very big. When this happens,
-            # it's probably better to pretend we don't have any info
-            # (an empty list, which we'll also get when information is
+            # Buildbot lists changes since the last *successful* build,
+            # so in a failing streak the list can get very big.
+            # When this happens, it's probably better to pretend we don't have
+            # any info (which we'll also get when information is
             # scrubbed after some months)
             return []
         return [Change(self, info) for info in infos]
@@ -407,6 +415,7 @@ class Build(DashboardObject):
             return None
         return datetime.timedelta(seconds=seconds)
 
+
 class JunitResult(DashboardObject):
     def __init__(self, *args):
         super().__init__(*args)
@@ -418,7 +427,10 @@ class JunitResult(DashboardObject):
         errors = []
         error_types = set()
         for error_elem in element.iterfind('error'):
-            new_error = JunitError(self, {**error_elem.attrib, 'text': error_elem.text})
+            new_error = JunitError(self, {
+                **error_elem.attrib,
+                'text': error_elem.text,
+            })
             errors.append(new_error)
             error_types.add(new_error["type"])
         result = self
@@ -431,7 +443,8 @@ class JunitResult(DashboardObject):
         result.error_types.update(error_types)
         for error in errors:
             if error not in result.errors:
-                # De-duplicate, since failing tests are re-run
+                # De-duplicate, since failing tests are re-run and often fail
+                # the same way
                 result.errors.extend(errors)
 
 
@@ -441,28 +454,20 @@ class JunitError(DashboardObject):
 
 
 class Change(DashboardObject):
-    pass  # the JSON is fine! :)
-
-
-def get_or_make(mapping, key):
-    def decorator(func):
-        try:
-            return mapping[key]
-        except KeyError:
-            value = func()
-            mapping[key] = value
-            return value
-    return decorator
+    pass
 
 
 class Severity(enum.IntEnum):
+    # "Headings" and concrete values are all sortable enum items
+
     NO_PROBLEM = enum.auto()
     no_builds_yet = enum.auto()
     disconnected_unstable_builder = enum.auto()
+    unstable_warnings = enum.auto()
     unstable_builder_failure = enum.auto()
 
     TRIVIAL = enum.auto()
-    build_warnings = enum.auto()
+    stable_warnings = enum.auto()
     disconnected_stable_builder = enum.auto()
     disconnected_blocking_builder = enum.auto()
 
@@ -493,12 +498,15 @@ class Problem:
     def __str__(self):
         return self.description
 
+    @cached_property
+    def order_key(self):
+        return -self.severity, self.description
+
     def __eq__(self, other):
-        return self.description == other.description
+        return self.order_key == other.order_key
 
     def __lt__(self, other):
-        return (-self.severity, self.description) < (-other.severity,
-                                                     other.description)
+        return self.order_key < other.order_key
 
     @cached_property
     def severity(self):
@@ -528,7 +536,7 @@ class BuildFailure(Problem):
             severity = Severity.release_blocking_failure
         else:
             severity = Severity.nonblocking_failure
-        description = f"{str(self.builder.tier).title()} stable builder failed"
+        description = f"{str(self.builder.tier).title()} builder failed"
         return severity, description
 
     @property
@@ -548,8 +556,12 @@ class BuildWarning(Problem):
     """The most recent build warns"""
     build: Build
 
-    description = "Warnings"
-    severity = Severity.build_warnings
+    def get_severity_and_description(self):
+        if not self.builder.is_stable:
+            return Severity.unstable_warnings, "Unstable builder warns"
+        severity = Severity.stable_warnings
+        description = f"{str(self.builder.tier).title()} builder warns"
+        return severity, description
 
     @property
     def builder(self):
@@ -580,7 +592,7 @@ class BuilderDisconnected(Problem):
             severity = Severity.disconnected_unstable_builder
             description = "Disconnected unstable builder"
         else:
-            description = f"Disconnected {str(self.builder.tier).title()} stable builder"
+            description = f"Disconnected {str(self.builder.tier).title()} builder"
             if self.builder.is_release_blocking:
                 severity = Severity.disconnected_blocking_builder
             else:
@@ -613,7 +625,7 @@ class ReleaseDashboard:
         self.flask_app = Flask("test", root_path=os.path.dirname(__file__))
         self.cache = None
 
-        self._cache_branch_info()
+        self._refresh_branch_info()
 
         self.flask_app.jinja_env.add_extension('jinja2.ext.loopcontrols')
         self.flask_app.jinja_env.undefined = jinja2.StrictUndefined
@@ -631,7 +643,7 @@ class ReleaseDashboard:
                     return result
 
                 try:
-                    self._cache_branch_info()
+                    self._refresh_branch_info()
                 except urllib.error.HTTPError:
                     pass
 
@@ -665,40 +677,18 @@ class ReleaseDashboard:
             # When that's no longer true we should put a name in the data.
             return full_name.split()[0]
 
-    def _cache_branch_info(self):
+    def _refresh_branch_info(self):
         with urllib.request.urlopen(BRANCHES_URL) as file:
             self.branch_info = json.load(file)
 
-    def dataGet(self, *args, **kwargs):
-        # Buildbot sets `buildbot_api` as an attribute on the WSGI app.
-        return self.flask_app.buildbot_api.dataGet(*args, **kwargs)
-
-
     def get_release_status(self):
         state = DashboardState(self)
-
-        connected_builderids = set()
-        for worker in self.dataGet("/workers"):
-            if worker["connected_to"]:
-                for cnf in worker["configured_on"]:
-                    connected_builderids.add(cnf["builderid"])
-
-        builders = state.builders
-
-        failed_builds_by_branch_and_tier = {}
-        disconnected_builders = set()
-
-        for builder in builders:
-            if builder["builderid"] not in connected_builderids:
-                disconnected_builders.add(builder["builderid"])
-
-        generated_at = state.now
 
         return render_template(
             "releasedashboard.html",
             state=state,
             Severity=Severity,
-            generated_at=generated_at,
+            generated_at=state.now,
         )
 
 def get_release_status_app(buildernames=None, **kwargs):

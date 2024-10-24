@@ -6,6 +6,8 @@ Some files should be copiable directly to the buildbot config:
 - `static/*`
 
 The rest is scaffolding and hacks to make this a stand-alone app.
+The stand-alone app is meant for local development, does heavy caching, and
+will be out-of-date and inconsistent.
 
 A static preview is on GitHub Pages. It does *not* update automatically.
 

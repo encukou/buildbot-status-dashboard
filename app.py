@@ -64,7 +64,7 @@ def body_middleware(app):
                 yield b'<html>'
                 yield b'<head>'
                 yield b'<base href="https://buildbot.python.org/">'
-                yield b'<link rel="stylesheet" href="https://buildbot.python.org/assets/index-RMiJqufA.css">'  # TODO: this'll break...
+                yield b'<link rel="stylesheet" href="https://buildbot.python.org/assets/index-RMiJqufA.css">'  # TODO: this'll break oun every Buildbot update...
                 url = url_for('static', filename='dashboard.css', _external=True)
                 yield f'<link rel="stylesheet" href="{url}">'.encode()
                 yield b'</head>'

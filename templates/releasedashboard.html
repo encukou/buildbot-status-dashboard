@@ -28,7 +28,10 @@
         {% endif %}
         {% if build.changes %}
             <details {% if build.changes|length <= 3 %}open{% endif %}>
-                <summary>{{ build.changes|length }} change{% if build.changes|length != 1 %}s{% endif %}</summary>
+                <summary>
+                    {{ build.changes|length }}
+                    change{% if build.changes|length != 1 %}s{% endif %}
+                </summary>
                 <ul>
                     {% for change in build.changes %}
                         <li>
@@ -38,7 +41,11 @@
                             by {{ change.author | committer_name }}
                             {% if change.files %}
                                 <details {% if change.files|length <= 3 %}open{% endif %}>
-                                    <summary>{{ change.files|length }} file{% if change.files|length != 1 %}s{% endif %} changed</summary>
+                                    <summary>
+                                        {{ change.files|length }}
+                                        file{% if change.files|length != 1 %}s{% endif %}
+                                        changed
+                                    </summary>
                                     <ul>
                                         {% for file in change.files %}
                                             <li>
@@ -49,16 +56,20 @@
                                 </details>
                             {% endif %}
                         </li>
-                    {% endfor  %}
+                    {% endfor -%}
                 </ul>
             </details>
-        {% endif %}
-    {% endif %}
-﻿{% endmacro -%}
+        {% endif -%}
+    {% endif -%}
+{% endmacro -%}
 {% macro junit_result(result, name, toplevel=False) %}
     {% if (result.contents | length == 1) and (not result.errors) %}
         {% for cname, child in result.contents.items() %}
-            {{ junit_result(child, name + ('.' if name else '') + cname, toplevel=toplevel) }}
+            {{ junit_result(
+                child,
+                name + ('.' if name else '') + cname,
+                toplevel=toplevel,
+            ) }}
         {% endfor %}
     {% else %}
         <details {% if not toplevel %}open{% endif %} class="junit-result">
@@ -121,10 +132,17 @@
                     </div>
                     <div class="panel-footer">
                         {% if branch.pep is defined %}
-                            <div><a href="https://peps.python.org/pep-{{ branch.pep }}/">PEP {{ branch.pep }}</a></div>
+                            <div>
+                                <a href="https://peps.python.org/pep-{{ branch.pep }}/">
+                                    PEP {{ branch.pep }}
+                                </a>
+                            </div>
                         {% endif %}
                         {% if branch.release_manager is defined %}
-                            <div><abbr title="Release Manager">RM</abbr>: {{ branch.release_manager | short_rm_name }}</div>
+                            <div>
+                                <abbr title="Release Manager">RM</abbr>:
+                                {{ branch.release_manager | short_rm_name }}
+                            </div>
                         {% endif %}
                     </div>
                 </div>
@@ -141,7 +159,9 @@
             </h3>
             {% for description, problems in branch.get_grouped_problems() %}
                 <details {% if problems[0].severity > Severity.TRIVIAL %}open{% endif %}>
-                    <summary class="tier-name">{{ description }} ({{ problems|length }})</summary>
+                    <summary class="tier-name">
+                        {{ description }} ({{ problems|length }})
+                    </summary>
                     <section>
                         {% for problem in problems %}
                             <section>
@@ -161,7 +181,8 @@
                                         <div>
                                             Disconnected! 🔌
                                             {% if builder.builds %}
-                                                Last build {{ builder.builds[0].started_at | format_datetime }}
+                                                Last build
+                                                {{ builder.builds[0].started_at | format_datetime }}
                                             {% endif %}
                                         </div>
                                     {% endif %}
