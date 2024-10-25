@@ -45,19 +45,23 @@
         }
     }
 
-    .row.top-panels {
-        /* When wrapping, panels for recent branches are the bigger ones */
-        flex-wrap: wrap-reverse;
-        flex-direction: row-reverse;
+    .branch-panels {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
         align-items: stretch;
+        justify-content: center;
     }
-    .panel {
+    .branch-panel {
         cursor: pointer;
         border-radius: 8px;
         overflow: hidden;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         transition: transform 0.3s ease, box-shadow 0.3s ease;
         height: 100%;
+        min-width: 9rem;
+        max-width: 13rem;
+
         display: flex;
         flex-direction: column;
         * { flex-grow: 0; }
