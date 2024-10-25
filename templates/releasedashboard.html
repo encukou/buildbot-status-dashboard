@@ -4,16 +4,18 @@
         class="build-dot build-results-{{ build.css_color_class }}"
         title="{{ build_summary(build) }}"
     >
-        &nbsp;
+        {{ build.results_symbol }}
     </a>
 {% endmacro -%}
 {%- macro build_summary(build) -%}
     #{{- build.number -}}
     {{- ' ' -}}
     (
+        {{- build.results_string -}},
+        {{- ' ' -}}
         {{- build.started_at | format_datetime -}}
         {%- if build.duration -%}
-            , took {{ build.duration | format_timedelta -}}
+            ; took {{ build.duration | format_timedelta -}}
         {%- endif -%}
     )
 {%- endmacro -%}
@@ -119,20 +121,26 @@
                 >
                     <div class="panel-heading">
                         <h3 class="panel-title">
-                            {{ branch.title }}
+                            {{ branch.version }}
                         </h3>
                     </div>
                     <div class="panel-body">
-                        <div class="severity-symbol">{{ branch.featured_problem.severity.symbol }}</div>
-                        {% if branch.featured_problem.severity <= Severity.NO_PROBLEM %}
-                            Releasable!
-                        {% else %}
-                            {{ branch.featured_problem }}
-                        {% endif %}
+                        <div class="releasability">
+                            <span class="severity-symbol">
+                                {{ branch.featured_problem.severity.symbol }}
+                            </span>
+                            {{ branch.featured_problem.severity.releasability }}
+                        </div>
+                        {{ branch.featured_problem }}
                     </div>
                     <div class="panel-footer">
+                        <div>
+                            {{ branch.status | title }} branch
+                            <code>{{ branch.branch }}</code>
+                        </div>
                         {% if branch.pep is defined %}
                             <div>
+                                Schedule:
                                 <a href="https://peps.python.org/pep-{{ branch.pep }}/">
                                     PEP {{ branch.pep }}
                                 </a>
@@ -156,6 +164,9 @@
         <section class="branch-status status-{{ branch.featured_problem.severity.css_color_class }}" id="branch-section-{{branch}}">
             <h3>
                 {{ branch.title }}
+                {% if branch.version is defined and branch.version != branch.title %}
+                    ({{ branch.version }})
+                {% endif %}
             </h3>
             {% for description, problems in branch.get_grouped_problems() %}
                 <details {% if problems[0].severity > Severity.TRIVIAL %}open{% endif %}>

@@ -17,14 +17,11 @@ import jinja2
 import humanize
 
 from buildbot.data.resultspec import Filter
+import buildbot.process.results
 
 N_BUILDS = 200
 MAX_CHANGES = 50
 
-FAILED_BUILD_STATUS = 2
-WARNING_BUILD_STATUS = 1
-SUCCESS_BUILD_STATUS = 0
-MIN_CONSECUTIVE_FAILURES = 2
 
 # Cache result for 6 minutes. Generating the page is slow and a Python build
 # takes at least 5 minutes, a common build takes 10 to 30 minutes.  There is a
@@ -137,7 +134,9 @@ class DashboardState(DashboardObject):
 
     @cached_property
     def _no_tier(self):
-        return Tier(self, {'tag': 'no-tier'})
+        # Hack: 'tierless' sorts after 'tier-#' alphabetically,
+        # so we don't need to use numeric priority to sort failures by tier
+        return Tier(self, {'tag': 'tierless'})
 
     @cached_property
     def now(self):
@@ -208,9 +207,9 @@ class Builder(DashboardObject):
         """Yield builds except unfinished/skipped/interrupted ones"""
         for build in self.builds:
             if build["results"] in (
-                SUCCESS_BUILD_STATUS,
-                WARNING_BUILD_STATUS,
-                FAILED_BUILD_STATUS,
+                buildbot.process.results.SUCCESS,
+                buildbot.process.results.WARNINGS,
+                buildbot.process.results.FAILURE,
             ):
                 yield build
 
@@ -224,16 +223,16 @@ class Builder(DashboardObject):
         if not latest_build:
             yield NoBuilds(self)
             return
-        elif latest_build["results"] == WARNING_BUILD_STATUS:
+        elif latest_build["results"] == buildbot.process.results.WARNINGS:
             yield BuildWarning(latest_build)
-        elif latest_build["results"] == FAILED_BUILD_STATUS:
+        elif latest_build["results"] == buildbot.process.results.FAILURE:
             failing_streak = 0
             first_failing_build = None
             for build in self.iter_interesting_builds():
-                if build["results"] == FAILED_BUILD_STATUS:
+                if build["results"] == buildbot.process.results.FAILURE:
                     first_failing_build = build
                     continue
-                elif build["results"] == SUCCESS_BUILD_STATUS:
+                elif build["results"] == buildbot.process.results.SUCCESS:
                     if latest_build != first_failing_build:
                         yield BuildFailure(latest_build, first_failing_build)
                     break
@@ -334,6 +333,10 @@ class Tier(_BranchTierBase):
         return 99
 
     @cached_property
+    def title(self):
+        return self.tag.title()
+
+    @cached_property
     def sort_key(self):
         return self.value
 
@@ -375,12 +378,34 @@ class Build(DashboardObject):
             return self._root.now - self.started_at
 
     @cached_property
+    def results_symbol(self):
+        if self["results"] == buildbot.process.results.FAILURE:
+            return '\N{HEAVY BALLOT X}'
+        if self["results"] == buildbot.process.results.WARNINGS:
+            return '\N{WARNING SIGN}'
+        if self["results"] == buildbot.process.results.SUCCESS:
+            return '\N{HEAVY CHECK MARK}'
+        if self["results"] == buildbot.process.results.SKIPPED:
+            return '\N{CIRCLED MINUS}'
+        if self["results"] == buildbot.process.results.EXCEPTION:
+            return '\N{CIRCLED DIVISION SLASH}'
+        if self["results"] == buildbot.process.results.RETRY:
+            return '\N{ANTICLOCKWISE OPEN CIRCLE ARROW}'
+        if self["results"] == buildbot.process.results.CANCELLED:
+            return '\N{CIRCLED TIMES}'
+        return str(self["results"])
+
+    @cached_property
+    def results_string(self):
+        return buildbot.process.results.statusToString(self["results"])
+
+    @cached_property
     def css_color_class(self):
-        if self["results"] == SUCCESS_BUILD_STATUS:
+        if self["results"] == buildbot.process.results.SUCCESS:
             return 'success'
-        if self["results"] == WARNING_BUILD_STATUS:
+        if self["results"] == buildbot.process.results.WARNINGS:
             return 'warning'
-        if self["results"] == FAILED_BUILD_STATUS:
+        if self["results"] == buildbot.process.results.FAILURE:
             return 'danger'
         return 'unknown'
 
@@ -493,6 +518,14 @@ class Severity(enum.IntEnum):
             return '\N{WARNING SIGN}'
         return '\N{HEAVY CHECK MARK}'
 
+    @cached_property
+    def releasability(self):
+        if self >= Severity.BLOCKING:
+            return 'Unreleasable'
+        if self >= Severity.CONCERNING:
+            return 'Concern'
+        return 'Releasable'
+
 
 class Problem:
     def __str__(self):
@@ -531,12 +564,12 @@ class BuildFailure(Problem):
 
     def get_severity_and_description(self):
         if not self.builder.is_stable:
-            return Severity.unstable_builder_failure, "Unstable builder failed"
+            return Severity.unstable_builder_failure, "Unstable build failed"
         if self.builder.is_release_blocking:
             severity = Severity.release_blocking_failure
         else:
             severity = Severity.nonblocking_failure
-        description = f"{str(self.builder.tier).title()} builder failed"
+        description = f"{self.builder.tier.title} build failed"
         return severity, description
 
     @property
@@ -557,10 +590,12 @@ class BuildWarning(Problem):
     build: Build
 
     def get_severity_and_description(self):
+        # Description word order is different from BuildFailure, to tell these
+        # apart at a glance
         if not self.builder.is_stable:
-            return Severity.unstable_warnings, "Unstable builder warns"
+            return Severity.unstable_warnings, "Warnings from unstable build"
         severity = Severity.stable_warnings
-        description = f"{str(self.builder.tier).title()} builder warns"
+        description = f"Warnings from {self.builder.tier.title} build"
         return severity, description
 
     @property
@@ -592,7 +627,7 @@ class BuilderDisconnected(Problem):
             severity = Severity.disconnected_unstable_builder
             description = "Disconnected unstable builder"
         else:
-            description = f"Disconnected {str(self.builder.tier).title()} builder"
+            description = f"Disconnected {self.builder.tier.title} builder"
             if self.builder.is_release_blocking:
                 severity = Severity.disconnected_blocking_builder
             else:

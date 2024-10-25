@@ -32,7 +32,6 @@
 
     h2 {
         font-size: 2em;
-        border-bottom: 2px solid var(--secondary-color);
         padding-bottom: 10px;
         margin-top: 40px;
     }
@@ -67,17 +66,18 @@
             transform: translateY(-5px);
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
         }
-        .severity-symbol {
-            font-size: 143%;
-        }
-        &.panel-success .severity-symbol {
-            color: var(--success-color);
-        }
-        &.panel-warning .severity-symbol {
-            color: var(--warning-color);
-        }
-        &.panel-danger .severity-symbol {
-            color: var(--danger-color);
+        .releasability {
+            font-weight: bold;
+            -color: var(--text-color);
+                .panel-success & {
+                    color: var(--success-color);
+                }
+                .panel-warning & {
+                    color: var(--warning-color);
+                }
+                .panel-danger & {
+                    color: var(--danger-color);
+                }
         }
 
         .panel-heading {
@@ -85,6 +85,7 @@
             font-weight: bold;
             text-align: center;
             box-shadow: rgba(0, 0, 0, 0.15) 0px -5px 3px -2px inset;
+            color: white;
 
             h3 {
                 font-size: 3rem;
@@ -94,15 +95,12 @@
 
             .panel-success & {
                 background-color: var(--success-color);
-                color: white;
             }
             .panel-warning & {
-                background-color: var(--warning-color);
-                color: white;
+                background-color: var(--warning-color-bg);
             }
             .panel-danger & {
                 background-color: var(--danger-color);
-                color: white;
             }
         }
 
@@ -170,13 +168,15 @@
             height: 1rem;
             background-color: var(--pill-bg-color);
             color: var(--pill-text-color);
-            font-size: .5rem;
+            font-size: .75rem;
+            line-height: 1rem;
             border-radius: .5rem;
-            padding: .2em .5em .3em;
-            transform: translateY(-.4em);
-            &.build-results-success { background-color: var(--success-color); }
-            &.build-results-warning { background-color: var(--warning-color); }
-            &.build-results-danger { background-color: var(--danger-color); }
+            padding: 0 0 .4rem;
+            text-align: center;
+            vertical-align: .125rem;
+            &.build-results-success { background-color: var(--success-color); color: white; }
+            &.build-results-warning { background-color: var(--warning-color-bg); }
+            &.build-results-danger { background-color: var(--danger-color); color: white; }
         }
         .tag {
             display: inline-block;
@@ -223,7 +223,8 @@
     --background-color: #f4f4f4;
     --text-color: #333;
     --success-color: #4CAF60;
-    --warning-color: #EEC121;
+    --warning-color: #C2870F;
+    --warning-color-bg: #E4B615; /* nicer "traffic light" amber , but not enough contrast for text */
     --danger-color: #f44336;
     --pill-bg-color: #e0e0e0;
     --pill-text-color: #333;
